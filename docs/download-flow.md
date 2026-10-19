@@ -241,6 +241,7 @@ flowchart LR
 - Rebuilding a blob as `application/octet-stream` forces Safari to download instead of preview.
 - Filenames are lost unless the server sends `Content-Disposition` or the user goes through the share sheet.
 - In-app browsers (Instagram, Facebook) often block downloads entirely — no web code fixes that; the guide dialog is the fallback.
+- Never pass `title` (or `text`) alongside `files` in `navigator.share` on iOS — the share sheet treats them as extra items, so "Save to Files" writes the file plus an extra `.txt` containing the title text. The filename always comes from `File.name`.
 - Inside a host app's own webview (e.g. Flutter), the only real fix is a native bridge — see section 4. The page detects the bridge automatically and hands off.
 
 ## 9. Source Map

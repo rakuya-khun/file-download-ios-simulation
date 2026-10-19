@@ -27,7 +27,7 @@ export function createBrowserDownloadDeps(): DownloadDeps {
       typeof navigator.canShare === 'function' &&
       navigator.canShare({ files: [file] }),
     shareFile: async (file) => {
-      await navigator.share({ files: [file], title: file.name })
+      await navigator.share({ files: [file] })
     },
     triggerBlobDownload: (blob, filename) => {
       const url = URL.createObjectURL(blob)
