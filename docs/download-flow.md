@@ -202,7 +202,7 @@ flowchart LR
     end
 
     subgraph Prod["AWS Amplify"]
-        AH["amplify.yml customHeaders<br/>sets Content-Disposition + MIME"]
+        AH["customHttp.yml custom headers<br/>sets Content-Disposition + MIME"]
         DF["dist/v3/verification/qr.*"]
         AH --- DF
     end
@@ -247,6 +247,6 @@ flowchart LR
 | Fetch + Content-Disposition parsing | `src/shared/api/client.ts` |
 | Artifact catalog (endpoints) | `src/entities/download-artifact/model/catalog.ts` |
 | Simulated backend headers (dev) | `vite.config.ts` |
-| Simulated backend headers (prod) | `amplify.yml` |
+| Simulated backend headers (prod) | `customHttp.yml` |
 
 Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, or `?simulate=android-webview` to preview any strategy from a desktop browser.

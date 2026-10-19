@@ -39,7 +39,7 @@ Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-
 ## Backend simulation
 
 - `public/v3/verification/qr.{json,pdf,csv,txt}` are served at prod-like paths.
-- `amplify.yml` applies `Content-Disposition: attachment`, correct MIME types, and `no-store` via `customHeaders`.
+- `customHttp.yml` applies `Content-Disposition: attachment`, correct MIME types, and `no-store` as Amplify custom headers.
 - The Vite dev/preview server applies the same headers locally, so `pnpm dev` mirrors prod and a real phone can test against your LAN IP (`http://<pc-ip>:5173`).
 
 When the real API exists, set `VITE_API_BASE_URL` and both modes switch to it. For cross-origin fetches, expose `Content-Disposition` via CORS (`Access-Control-Expose-Headers`) so filenames can be read.
