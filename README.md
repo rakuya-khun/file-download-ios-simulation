@@ -30,14 +30,14 @@ When the page runs inside an app webview with a native bridge, downloads are han
 
 Each artifact exposes:
 
-- **Download** — client-side path (backend returns JSON in the response body). If the prefetch failed, the button becomes **Retry**.
+- **Download** — client-side path (backend returns JSON in the response body). If the prefetch failed, the button becomes **Retry**. On iPhone/iPad this opens the share sheet — choose **Save to Files** (the sheet is handed only the file, so exactly one item is saved).
 - **Direct link** — server-side path (backend triggers the download via headers).
 - **Copy link** — copies the endpoint URL for pasting into a browser.
 - **Not working? Show guide** — manual save instructions (includes **Copy link** and **Open in browser**).
 
 **Download both** runs the same strategy for JSON then PDF in sequence and reports how many files were handled. On iOS only one share sheet may be granted per gesture — if the status says files are missing, tap the remaining row directly.
 
-Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, or `?simulate=android-webview` to preview another platform's strategy from a desktop browser.
+Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, `?simulate=android-webview`, `?simulate=instagram`, or `?simulate=facebook` to preview another platform's strategy from a desktop browser (`instagram` and `facebook` preview an iOS in-app webview).
 
 ## Backend simulation
 
@@ -45,7 +45,7 @@ Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-
 - `customHttp.yml` applies `Content-Disposition: attachment`, correct MIME types, and `no-store` as Amplify custom headers.
 - The Vite dev/preview server applies the same headers locally, so `pnpm dev` mirrors prod and a real phone can test against your LAN IP (`http://<pc-ip>:5173`).
 
-When the real API exists, set `VITE_API_BASE_URL` and both modes switch to it. For cross-origin fetches, expose `Content-Disposition` via CORS (`Access-Control-Expose-Headers`) so filenames can be read.
+When the real API exists, set `VITE_API_BASE_URL` and all modes switch to it. For cross-origin fetches, expose `Content-Disposition` via CORS (`Access-Control-Expose-Headers`) so filenames can be read.
 
 ## Stack
 
@@ -70,7 +70,7 @@ Import rule: `app → views → features → entities → shared`. No cross-slic
 ```sh
 pnpm dev            # local dev (simulated backend headers included)
 pnpm build          # typecheck + production build
-pnpm typecheck      # tsc --noEmit
+pnpm typecheck      # tsc -b (build mode, includes project refs)
 pnpm lint           # biome check
 pnpm test           # vitest run
 pnpm test:coverage  # vitest with coverage

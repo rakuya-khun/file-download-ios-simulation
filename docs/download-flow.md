@@ -101,7 +101,7 @@ sequenceDiagram
     end
 ```
 
-"Download both" repeats the second half of this sequence for each artifact (JSON, then PDF) and aggregates the outcome into a single status line.
+"Download both" repeats the second half of this sequence for each artifact (JSON, then PDF) and aggregates the outcome into a single status line. On iOS the second share sheet may be denied once the tap gesture's activation is spent — the engine then falls back to the octet-stream attempt, and any file counted as not handled is left for the per-row buttons.
 
 ## 4. Bridge Contract (In-App Webviews)
 
@@ -138,7 +138,13 @@ Payload:
 window.onDownloadBridgeResult(JSON.stringify({ status: 'saved', filename: 'verification-qr.json' }))
 ```
 
-`status` is `saved` | `failed` | `cancelled`. The page matches `filename` to the artifact row and updates its status line.
+`status` is `saved` | `failed` | `cancelled`. The page matches `filename` to the artifact row and updates its status line. Outcomes without a `filename` update every row whose last action was a bridge hand-off.
+
+### Integration notes
+
+- `payload.url` is relative to the page origin (or absolute when `VITE_API_BASE_URL` is set on the web build) — resolve it against the webview's current URL before downloading.
+- The page installs `window.onDownloadBridgeResult` itself, only if no handler is defined yet. Don't pre-define it from host code before the page loads, or the page's status lines will never receive results.
+- The bridge payload carries no auth beyond the page's own session — register the bridge only for trusted origins.
 
 ### Flutter snippets
 
@@ -261,4 +267,4 @@ flowchart LR
 | Simulated backend headers (dev) | `vite.config.ts` |
 | Simulated backend headers (prod) | `customHttp.yml` |
 
-Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, or `?simulate=android-webview` to preview any strategy from a desktop browser.
+Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, `?simulate=android-webview`, `?simulate=instagram`, or `?simulate=facebook` to preview any strategy from a desktop browser.
