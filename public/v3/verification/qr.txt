@@ -1,0 +1,10 @@
+ICTO File Download Test
+========================
+Document: verification-qr
+Record:   VER-2026-000001
+Status:   valid
+Issued:   2026-10-19
+
+This plain text file exists to verify cross-device download behavior,
+especially on iOS Safari, where text files historically open in-tab
+instead of downloading.

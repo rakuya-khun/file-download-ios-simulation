@@ -1,0 +1,12 @@
+{
+  "issuer": "icto-workspace",
+  "document": "verification-qr",
+  "version": "1.0.0",
+  "issued_at": "2026-10-19T00:00:00Z",
+  "payload": {
+    "id": "VER-2026-000001",
+    "name": "Sample Verification Record",
+    "status": "valid",
+    "checksum": "sha256:1f2e3d4c5b6a79887766554433221100ffeeddccbbaa9988776655443322110a"
+  }
+}
