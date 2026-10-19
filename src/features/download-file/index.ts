@@ -14,4 +14,9 @@ export type {
 } from './model/engine'
 export { runDownload } from './model/engine'
 export { getGuideContent } from './model/guide'
+export {
+  buildBulkStatusMessage,
+  useDownloadAll,
+} from './model/useDownloadAll'
+export { useDownloadFile } from './model/useDownloadFile'
 export { DownloadArtifactRow } from './ui/DownloadArtifactRow'

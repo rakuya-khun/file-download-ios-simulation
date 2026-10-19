@@ -6,9 +6,13 @@ import {
 import { resolveArtifactUrl } from '@/shared/api/client'
 import { copyTextToClipboard } from '@/shared/lib/clipboard'
 import { getPlatform } from '@/shared/lib/platform'
-import { type BridgeOutcome, subscribeToBridgeOutcome } from './bridge'
+import {
+  type BridgeOutcome,
+  hasDownloadBridge,
+  subscribeToBridgeOutcome,
+} from './bridge'
 import { createBrowserDownloadDeps } from './browser'
-import { type DownloadResult, runDownload } from './engine'
+import { type DownloadInput, type DownloadResult, runDownload } from './engine'
 
 export function useDownloadFile(artifact: DownloadArtifact) {
   const platform = useMemo(() => getPlatform(), [])
@@ -17,49 +21,116 @@ export function useDownloadFile(artifact: DownloadArtifact) {
   const [bridgeOutcome, setBridgeOutcome] = useState<BridgeOutcome | null>(null)
   const [guideOpen, setGuideOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [queued, setQueued] = useState(false)
+  const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
+  const resultRef = useRef<DownloadResult | null>(null)
 
   const downloadUrl = resolveArtifactUrl(artifact.endpoint)
+  const bridgeAvailable = useMemo(
+    () => platform.isWebview && hasDownloadBridge(),
+    [platform],
+  )
 
   useEffect(
     () =>
       subscribeToBridgeOutcome((outcome) => {
+        if (resultRef.current?.method !== 'bridge') return
         if (outcome.filename && outcome.filename !== artifact.filename) return
         setBridgeOutcome(outcome)
       }),
     [artifact.filename],
   )
 
+  const execute = useCallback(
+    (input: DownloadInput) => {
+      busyRef.current = true
+      setBusy(true)
+      void runDownload(input, platform, createBrowserDownloadDeps())
+        .then((outcome) => {
+          resultRef.current = outcome
+          setResult(outcome)
+          const needsGuide =
+            outcome.method === 'guide' ||
+            (outcome.uncertain && platform.isWebview && platform.isIosFamily)
+          if (needsGuide) setGuideOpen(true)
+        })
+        .catch(() => {
+          const fallback: DownloadResult = { method: 'guide', uncertain: true }
+          resultRef.current = fallback
+          setResult(fallback)
+          setGuideOpen(true)
+        })
+        .finally(() => {
+          busyRef.current = false
+          setBusy(false)
+        })
+    },
+    [platform],
+  )
+
   const start = useCallback(() => {
-    if (!query.data || busyRef.current) return
-    busyRef.current = true
+    if (busyRef.current || queued) return
+    resultRef.current = null
     setResult(null)
     setBridgeOutcome(null)
-    void runDownload(
-      {
+    setLinkCopied(false)
+
+    if (bridgeAvailable) {
+      execute({
         url: downloadUrl,
-        blob: query.data.blob,
-        filename: query.data.filename ?? artifact.filename,
-        mimeType: query.data.mimeType ?? artifact.mimeType,
-      },
-      platform,
-      createBrowserDownloadDeps(),
-    )
-      .then((outcome) => {
-        setResult(outcome)
-        const needsGuide =
-          outcome.method === 'guide' ||
-          (outcome.uncertain && platform.isWebview && platform.isIosFamily)
-        if (needsGuide) setGuideOpen(true)
+        blob: query.data?.blob ?? null,
+        filename: query.data?.filename ?? artifact.filename,
+        mimeType: query.data?.mimeType ?? artifact.mimeType,
       })
-      .catch(() => {
-        setResult({ method: 'guide', uncertain: true })
-        setGuideOpen(true)
-      })
-      .finally(() => {
-        busyRef.current = false
-      })
-  }, [artifact.filename, artifact.mimeType, downloadUrl, platform, query.data])
+      return
+    }
+
+    if (!query.data) {
+      setQueued(true)
+      void query.refetch()
+      return
+    }
+
+    execute({
+      url: downloadUrl,
+      blob: query.data.blob,
+      filename: query.data.filename ?? artifact.filename,
+      mimeType: query.data.mimeType ?? artifact.mimeType,
+    })
+  }, [
+    artifact.filename,
+    artifact.mimeType,
+    bridgeAvailable,
+    downloadUrl,
+    execute,
+    query,
+    queued,
+  ])
+
+  useEffect(() => {
+    if (!queued || !query.data) return
+    setQueued(false)
+    execute({
+      url: downloadUrl,
+      blob: query.data.blob,
+      filename: query.data.filename ?? artifact.filename,
+      mimeType: query.data.mimeType ?? artifact.mimeType,
+    })
+  }, [
+    artifact.filename,
+    artifact.mimeType,
+    downloadUrl,
+    execute,
+    query.data,
+    queued,
+  ])
+
+  useEffect(() => {
+    if (queued && query.isError && !query.isFetching) {
+      setQueued(false)
+    }
+  }, [queued, query.isError, query.isFetching])
 
   const openGuide = useCallback(() => setGuideOpen(true), [])
   const closeGuide = useCallback(() => setGuideOpen(false), [])
@@ -67,11 +138,17 @@ export function useDownloadFile(artifact: DownloadArtifact) {
     void copyTextToClipboard(downloadUrl).then(setLinkCopied)
   }, [downloadUrl])
 
+  const preparing = queued || busy
+  const disabled = bridgeAvailable ? busy : query.isPending || queued || busy
+  const error = !bridgeAvailable && query.isError && !queued
+
   return {
     platform,
     downloadUrl,
-    pending: query.isPending,
-    error: query.isError,
+    preparing,
+    disabled,
+    error,
+    size: query.data?.blob.size ?? null,
     result,
     bridgeOutcome,
     start,

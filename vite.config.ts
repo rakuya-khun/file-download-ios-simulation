@@ -16,14 +16,6 @@ const SIMULATED_FILES: Record<
     contentType: 'application/pdf',
     filename: 'verification-qr.pdf',
   },
-  '/v3/verification/qr.csv': {
-    contentType: 'text/csv; charset=utf-8',
-    filename: 'verification-qr.csv',
-  },
-  '/v3/verification/qr.txt': {
-    contentType: 'text/plain; charset=utf-8',
-    filename: 'verification-qr.txt',
-  },
 }
 
 function simulatedBackend(): Plugin {

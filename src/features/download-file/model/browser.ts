@@ -41,6 +41,7 @@ export function createBrowserDownloadDeps(): DownloadDeps {
     handOffToBridge: (input) =>
       postDownloadToBridge({
         type: 'download',
+        version: 1,
         url: input.url,
         filename: input.filename,
         mimeType: input.mimeType,

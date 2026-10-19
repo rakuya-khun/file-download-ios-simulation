@@ -1,5 +1,7 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
+const FILE_REQUEST_TIMEOUT_MS = 20_000
+
 export interface FetchedFile {
   blob: Blob
   filename: string | null
@@ -33,7 +35,10 @@ export async function fetchFile(
   path: string,
   init?: RequestInit,
 ): Promise<FetchedFile> {
-  const response = await fetch(resolveArtifactUrl(path), init)
+  const response = await fetch(resolveArtifactUrl(path), {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(FILE_REQUEST_TIMEOUT_MS),
+  })
 
   if (!response.ok) {
     throw new Error(`File request failed: ${response.status} ${path}`)

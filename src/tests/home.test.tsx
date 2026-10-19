@@ -38,15 +38,15 @@ describe('HomeView', () => {
   it('renders the heading and detected platform line', () => {
     renderHome()
     expect(
-      screen.getByRole('heading', { name: /file download test/i }),
+      screen.getByRole('heading', { name: /verification files/i }),
     ).toBeInTheDocument()
     expect(screen.getByTestId('platform-line')).toHaveTextContent(/detected/i)
   })
 
-  it('renders all four artifact rows', () => {
+  it('renders the json and pdf artifact rows', () => {
     renderHome()
-    expect(screen.getByTestId('artifact-list').children).toHaveLength(4)
-    for (const id of ['json', 'pdf', 'csv', 'txt']) {
+    expect(screen.getByTestId('artifact-list').children).toHaveLength(2)
+    for (const id of ['json', 'pdf']) {
       expect(screen.getByTestId(`artifact-${id}`)).toBeInTheDocument()
     }
   })
@@ -61,14 +61,11 @@ describe('HomeView', () => {
       'href',
       '/v3/verification/qr.pdf',
     )
-    expect(screen.getByTestId('direct-link-csv')).toHaveAttribute(
-      'href',
-      '/v3/verification/qr.csv',
-    )
-    expect(screen.getByTestId('direct-link-txt')).toHaveAttribute(
-      'href',
-      '/v3/verification/qr.txt',
-    )
+  })
+
+  it('offers a download-all action', () => {
+    renderHome()
+    expect(screen.getByTestId('download-all')).toBeInTheDocument()
   })
 
   it('honors ?simulate to preview another platform', () => {

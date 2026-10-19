@@ -9,6 +9,7 @@ import {
 
 const payload: BridgeDownloadPayload = {
   type: 'download',
+  version: 1,
   url: '/v3/verification/qr.json',
   filename: 'verification-qr.json',
   mimeType: 'application/json',

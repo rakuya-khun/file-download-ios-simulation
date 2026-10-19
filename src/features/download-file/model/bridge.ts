@@ -1,5 +1,6 @@
 export interface BridgeDownloadPayload {
   type: 'download'
+  version: 1
   url: string
   filename: string
   mimeType: string

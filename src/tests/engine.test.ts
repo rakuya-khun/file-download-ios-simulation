@@ -176,6 +176,31 @@ describe('runDownload strategy chain', () => {
     expect(result).toEqual({ method: 'share', uncertain: false })
   })
 
+  it('hands off to the bridge even before the blob is ready', async () => {
+    const deps = makeDeps({ bridge: true })
+    const result = await runDownload(
+      { ...input, blob: null },
+      platformFor(IPHONE_WEBVIEW),
+      deps.deps,
+    )
+
+    expect(result).toEqual({ method: 'bridge', uncertain: false })
+    expect(deps.handOffToBridge).toHaveBeenCalledWith({ ...input, blob: null })
+  })
+
+  it('falls back to the guide when no blob is available', async () => {
+    const deps = makeDeps({ canShare: true })
+    const result = await runDownload(
+      { ...input, blob: null },
+      platformFor(DESKTOP_CHROME),
+      deps.deps,
+    )
+
+    expect(result).toEqual({ method: 'guide', uncertain: true })
+    expect(deps.shareFile).not.toHaveBeenCalled()
+    expect(deps.triggerBlobDownload).not.toHaveBeenCalled()
+  })
+
   it('attempts a blob download inside Android webviews', async () => {
     const deps = makeDeps()
     const result = await runDownload(

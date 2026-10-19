@@ -11,7 +11,7 @@ export type DownloadMethod =
 
 export interface DownloadInput {
   url: string
-  blob: Blob
+  blob: Blob | null
   filename: string
   mimeType: string
 }
@@ -50,7 +50,12 @@ export async function runDownload(
     return { method: 'bridge', uncertain: false }
   }
 
-  const file = new File([input.blob], input.filename, { type: input.mimeType })
+  const blob = input.blob
+  if (!blob) {
+    return { method: 'guide', uncertain: true }
+  }
+
+  const file = new File([blob], input.filename, { type: input.mimeType })
 
   if (platform.isIosFamily && deps.canShareFile(file)) {
     try {
@@ -64,12 +69,12 @@ export async function runDownload(
   }
 
   if (platform.isIosFamily && platform.isWebview) {
-    await deps.triggerDataUriDownload(input.blob, input.filename)
+    await deps.triggerDataUriDownload(blob, input.filename)
     return { method: 'data-uri', uncertain: true }
   }
 
   if (platform.isIosFamily) {
-    const octetStream = new Blob([input.blob], {
+    const octetStream = new Blob([blob], {
       type: 'application/octet-stream',
     })
     deps.triggerBlobDownload(octetStream, input.filename)
@@ -80,6 +85,6 @@ export async function runDownload(
     return { method: 'guide', uncertain: true }
   }
 
-  deps.triggerBlobDownload(input.blob, input.filename)
+  deps.triggerBlobDownload(blob, input.filename)
   return { method: 'anchor', uncertain: platform.isWebview }
 }

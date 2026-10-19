@@ -1,20 +1,23 @@
 # Download Flow (Visual)
 
-How the download test page moves a file from the backend endpoint to a device — across iOS, iPadOS, Android, desktop, and in-app webviews.
+How the download page moves a file from the backend endpoint to a device — across iOS, iPadOS, Android, desktop, and in-app webviews. Two documents are offered: JSON and PDF.
 
 ## 1. System Overview
 
 ```mermaid
 flowchart TB
-    Row["Artifact row<br/>(json · pdf · csv · txt)"]
+    Row["Artifact card<br/>(json · pdf)"]
 
     Row -->|"Mode B"| FetchSave["Download<br/>(client-side)"]
     Row -->|"Mode A"| DirectLink["Direct link<br/>(server-side)"]
+    Row -->|"Mode C"| Bulk["Download both<br/>(sequential JSON → PDF)"]
 
     FetchSave --> Query["Prefetch on page load<br/>TanStack Query"]
+    Bulk --> Query
     Query --> Endpoint[("Backend endpoint<br/>/v3/verification/qr.*")]
     Endpoint --> Blob["Blob held in memory<br/>(keeps the tap gesture synchronous)"]
     Blob --> Engine["Download engine<br/>strategy chain per platform"]
+    Bulk --> Engine
 
     DirectLink --> Endpoint
     Endpoint --> Headers["Response headers<br/>Content-Disposition: attachment"]
@@ -26,21 +29,25 @@ flowchart TB
 
 - **Mode B — Download:** the backend returns the file body (e.g. JSON). The frontend fetches it ahead of time, then applies a per-platform strategy so the file actually saves.
 - **Mode A — Direct link:** a plain link to the endpoint. The server's `Content-Disposition: attachment` header does the work — the most reliable path on iOS.
+- **Mode C — Download both:** runs the same strategy chain for JSON then PDF, sequentially, and aggregates a status message. iOS may only grant one share sheet per gesture — the per-row buttons remain the fallback.
 
 ## 2. Strategy Chain (Download)
 
-Mirrors `src/features/download-file/model/engine.ts` exactly. Blob is prefetched so no `await` happens before the download is triggered (Safari drops user activation otherwise).
+Mirrors `src/features/download-file/model/engine.ts` exactly. The bridge path needs no blob at all; every other path needs the blob to be ready before the tap is served (Safari drops user activation otherwise).
 
 ```mermaid
 flowchart TD
-    Start(["Tap 'Download'"]) --> Ready{"Blob prefetched?"}
-    Ready -- "no" --> Preparing["Button disabled<br/>'Preparing...'"]
-    Ready -- "yes" --> BridgeAvail{"In-app webview<br/>with native bridge?"}
+    Start(["Tap 'Download'"]) --> BridgeAvail{"In-app webview<br/>with native bridge?"}
+    BridgeAvail -- "yes" --> BridgePost["Post payload to<br/>DownloadBridge / flutter_inappwebview<br/>(no prefetch needed)"]
+    BridgePost --> BridgeStatus["Status: 'Handed to the app'<br/>native reply updates the row"]
 
-    BridgeAvail -- "yes" --> BridgePost["Post payload to<br/>DownloadBridge / flutter_inappwebview"]
-    BridgePost --> BridgeStatus["Status: 'Handed to the app'<br/>native reply updates it"]
+    BridgeAvail -- "no" --> Ready{"Blob ready?"}
+    Ready -- "no" --> Preparing["'Preparing…' + queued fetch<br/>auto-runs when the blob lands<br/>(failed fetch → 'Retry')"]
+    Preparing --> Ready2{"Blob available?"}
+    Ready -- "yes" --> Ready2
 
-    BridgeAvail -- "no" --> IOS{"iOS / iPadOS?"}
+    Ready2 -- "no" --> GuideOnly["Status: 'This screen cannot<br/>download directly' + guide"]
+    Ready2 -- "yes" --> IOS{"iOS / iPadOS?"}
 
     IOS -- "yes" --> CanShare{"navigator.canShare<br/>with files?"}
     CanShare -- "yes" --> Share["Web Share API<br/>share sheet - 'Save to Files'"]
@@ -55,7 +62,7 @@ flowchart TD
     WV -- "no" --> Anchor["Anchor click<br/>blob + download attribute"]
     WV -- "yes" --> Android{"Android webview?"}
     Android -- "yes" --> AnchorWV["Anchor click attempt<br/>(may be ignored if host app lacks a DownloadListener)"]
-    Android -- "no" --> GuideOnly["No download attempt"]
+    Android -- "no" --> GuideOnly
 
     DataURI --> Uncertain["Status shown<br/>+ auto-opens guide on iOS webviews"]
     Octet --> Uncertain
@@ -84,15 +91,17 @@ sequenceDiagram
     E-->>P: file body + Content-Disposition filename
     Note over P: Blob held in memory
     U->>P: taps "Download"
-    P->>G: runDownload(blob) - synchronous until trigger
+    P->>G: runDownload(url, blob|null)
     alt webview with bridge
-        G->>N: DownloadBridge payload (url + filename + MIME)
+        G->>N: DownloadBridge payload (no blob needed)
         N-->>P: window.onDownloadBridgeResult("saved")
     else no bridge
         G->>OS: share sheet / anchor click / data URI / guide
         OS-->>U: File saved (Files app / Downloads folder)
     end
 ```
+
+"Download both" repeats the second half of this sequence for each artifact (JSON, then PDF) and aggregates the outcome into a single status line.
 
 ## 4. Bridge Contract (In-App Webviews)
 
@@ -112,6 +121,7 @@ Payload:
 ```json
 {
   "type": "download",
+  "version": 1,
   "url": "/v3/verification/qr.json",
   "filename": "verification-qr.json",
   "mimeType": "application/json"
@@ -225,7 +235,7 @@ flowchart LR
 ## 8. Why This Is Needed (iOS WebKit Quirks)
 
 - All iOS browsers use WebKit — Chrome/Firefox/Edge on iPhone behave like Safari, not like their desktop versions.
-- Text-like files (JSON/CSV/TXT) open in-tab instead of downloading; PDFs get previewed.
+- Text-like files (JSON) open in-tab instead of downloading; PDFs get previewed.
 - `blob:` URLs with the `download` attribute are ignored inside WKWebView (in-app browsers).
 - `data:` URIs still work in WKWebView but broke in recent iOS Safari — hence blob for Safari, data URI for webviews.
 - Rebuilding a blob as `application/octet-stream` forces Safari to download instead of preview.
@@ -242,6 +252,7 @@ flowchart LR
 | Native bridge detection, post, result parsing | `src/features/download-file/model/bridge.ts` |
 | Real DOM implementations (share, anchor, data URI) | `src/features/download-file/model/browser.ts` |
 | Gesture-safe orchestration hook | `src/features/download-file/model/useDownloadFile.ts` |
+| Bulk download orchestration (Mode C) | `src/features/download-file/model/useDownloadAll.ts` |
 | Guide dialog content per platform | `src/features/download-file/model/guide.ts` |
 | Copy-link clipboard helper | `src/shared/lib/clipboard.ts` |
 | Fetch + Content-Disposition parsing | `src/shared/api/client.ts` |

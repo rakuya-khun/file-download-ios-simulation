@@ -28,15 +28,15 @@ function installFakeBridge() {
   }
 }
 
-test('lists all four artifacts with a detected platform line', async ({
+test('lists the verification artifacts with a detected platform line', async ({
   page,
 }) => {
   await page.goto('/')
   await expect(
-    page.getByRole('heading', { name: 'File Download Test' }),
+    page.getByRole('heading', { name: 'Verification Files' }),
   ).toBeVisible()
   await expect(page.getByTestId('platform-line')).toContainText('Detected:')
-  for (const id of ['json', 'pdf', 'csv', 'txt']) {
+  for (const id of ['json', 'pdf']) {
     await expect(page.getByTestId(`artifact-${id}`)).toBeVisible()
   }
 })
@@ -47,6 +47,58 @@ test('download triggers a download using the backend filename', async ({
   await page.goto('/')
   const downloadButton = page.getByTestId('download-json')
   await expect(downloadButton).toBeEnabled()
+
+  const downloadPromise = page.waitForEvent('download')
+  await downloadButton.click()
+  const download = await downloadPromise
+
+  expect(download.suggestedFilename()).toBe('verification-qr.json')
+  await expect(page.getByTestId('status-json')).toContainText('triggered')
+})
+
+test('downloads both files through the bulk action', async ({ page }) => {
+  const filenames: string[] = []
+  page.on('download', (download) => {
+    filenames.push(download.suggestedFilename())
+  })
+
+  await page.goto('/')
+  await expect(page.getByTestId('download-json')).toBeEnabled()
+
+  await page.getByTestId('download-all').click()
+
+  await expect.poll(() => filenames.length).toBe(2)
+  expect([...filenames].sort()).toEqual([
+    'verification-qr.json',
+    'verification-qr.pdf',
+  ])
+  await expect(page.getByTestId('download-all-status')).toContainText(
+    'All 2 files are on their way.',
+  )
+})
+
+test('retries preparing the file after a fetch failure', async ({ page }) => {
+  let attempts = 0
+  await page.route('**/v3/verification/qr.json', (route) => {
+    attempts += 1
+    if (attempts <= 2) {
+      return route.fulfill({ status: 500, body: 'boom' })
+    }
+    return route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        'content-disposition': 'attachment; filename="verification-qr.json"',
+      },
+      body: '{"ok":true}',
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.getByTestId('error-json')).toBeVisible()
+
+  const downloadButton = page.getByTestId('download-json')
+  await expect(downloadButton).toHaveText('Retry')
 
   const downloadPromise = page.waitForEvent('download')
   await downloadButton.click()
@@ -141,10 +193,33 @@ test('hands the download to the native bridge inside a webview', async ({
   expect(messages).toHaveLength(1)
   expect(JSON.parse(messages[0] ?? '{}')).toEqual({
     type: 'download',
+    version: 1,
     url: '/v3/verification/qr.json',
     filename: 'verification-qr.json',
     mimeType: 'application/json',
   })
+})
+
+test('hands off to the bridge even when the file fetch fails', async ({
+  page,
+}) => {
+  await page.addInitScript(installFakeBridge)
+  await page.route('**/v3/verification/qr.json', (route) => route.abort())
+  await page.goto('/?simulate=ios-webview')
+
+  await page.getByTestId('download-json').click()
+
+  await expect(page.getByTestId('status-json')).toContainText(
+    'Handed to the app',
+  )
+  await expect(page.getByTestId('error-json')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+
+  const messages = await page.evaluate(
+    () =>
+      (window as unknown as { __bridgeMessages: string[] }).__bridgeMessages,
+  )
+  expect(messages).toHaveLength(1)
 })
 
 test('reflects the native bridge save result', async ({ page }) => {
@@ -181,12 +256,10 @@ test('shows the save guide on request', async ({ page }) => {
   )
 })
 
-test('copies the direct link from the save guide', async ({ page }) => {
-  await page.goto('/?simulate=ios-webview')
-  const row = page.getByTestId('artifact-json')
-  await row.getByRole('button', { name: /show guide/i }).click()
+test('copies the direct link from a row', async ({ page }) => {
+  await page.goto('/')
 
-  const copyButton = row.getByTestId('copy-link')
+  const copyButton = page.getByTestId('copy-link-json')
   await copyButton.click()
   await expect(copyButton).toContainText('Link copied')
 

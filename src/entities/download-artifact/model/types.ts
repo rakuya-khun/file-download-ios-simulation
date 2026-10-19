@@ -1,4 +1,4 @@
-export type ArtifactKind = 'json' | 'pdf' | 'csv' | 'txt'
+export type ArtifactKind = 'json' | 'pdf'
 
 export interface DownloadArtifact {
   id: ArtifactKind
