@@ -10,12 +10,16 @@ export type {
   DownloadDeps,
   DownloadInput,
   DownloadMethod,
+  DownloadPlan,
   DownloadResult,
+  DownloadRoute,
+  ExecutableDownloadPlan,
 } from './model/engine'
-export { runDownload } from './model/engine'
+export { resolveDownloadPlan, runDownload } from './model/engine'
 export { getGuideContent } from './model/guide'
 export {
   buildBulkStatusMessage,
+  SERVER_BULK_MESSAGE,
   useDownloadAll,
 } from './model/useDownloadAll'
 export { useDownloadFile } from './model/useDownloadFile'

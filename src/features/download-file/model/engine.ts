@@ -2,12 +2,22 @@ import type { PlatformInfo } from '@/shared/lib/platform'
 
 export type DownloadMethod =
   | 'bridge'
+  | 'server'
   | 'share'
   | 'octet-stream'
   | 'anchor'
   | 'data-uri'
   | 'guide'
   | 'cancelled'
+
+export type DownloadRoute = 'bridge' | 'server' | 'local'
+
+export type DownloadPlan =
+  | { route: 'bridge'; requiresBlob: false }
+  | { route: 'server'; requiresBlob: false }
+  | { route: 'local'; requiresBlob: true }
+
+export type ExecutableDownloadPlan = Exclude<DownloadPlan, { route: 'server' }>
 
 export interface DownloadInput {
   url: string
@@ -29,6 +39,21 @@ export interface DownloadDeps {
   handOffToBridge: (input: DownloadInput) => boolean
 }
 
+export function resolveDownloadPlan(
+  platform: PlatformInfo,
+  bridgeAvailable: boolean,
+): DownloadPlan {
+  if (platform.isWebview && bridgeAvailable) {
+    return { route: 'bridge', requiresBlob: false }
+  }
+
+  if (platform.isAndroid && platform.isWebview) {
+    return { route: 'server', requiresBlob: false }
+  }
+
+  return { route: 'local', requiresBlob: true }
+}
+
 function isAbortError(error: unknown): boolean {
   if (error instanceof DOMException) {
     return error.name === 'AbortError'
@@ -44,10 +69,15 @@ function isAbortError(error: unknown): boolean {
 export async function runDownload(
   input: DownloadInput,
   platform: PlatformInfo,
+  plan: ExecutableDownloadPlan,
   deps: DownloadDeps,
 ): Promise<DownloadResult> {
-  if (platform.isWebview && deps.handOffToBridge(input)) {
+  if (plan.route === 'bridge' && deps.handOffToBridge(input)) {
     return { method: 'bridge', uncertain: false }
+  }
+
+  if (platform.isAndroid && platform.isWebview) {
+    return { method: 'guide', uncertain: true }
   }
 
   const blob = input.blob

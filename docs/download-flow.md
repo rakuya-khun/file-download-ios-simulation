@@ -8,17 +8,19 @@ How the download page moves a file from the backend endpoint to a device — acr
 flowchart TB
     Row["Artifact card<br/>(json · pdf)"]
 
-    Row -->|"Mode B"| FetchSave["Download<br/>(client-side)"]
+    Row -->|"Mode B"| Planner["Download planner<br/>(bridge · server · local)"]
     Row -->|"Mode A"| DirectLink["Direct link<br/>(server-side)"]
     Row -->|"Mode C"| Bulk["Download both<br/>(sequential JSON → PDF)"]
 
-    FetchSave --> Query["Prefetch on page load<br/>TanStack Query"]
+    Planner -->|"Android webview<br/>without bridge"| ServerDL["Real anchor to endpoint<br/>(no download attribute)"]
+    Planner -->|"bridge / local"| Query["Prefetch only when the plan<br/>needs a blob"]
     Bulk --> Query
     Query --> Endpoint[("Backend endpoint<br/>/v3/verification/qr.*")]
     Endpoint --> Blob["Blob held in memory<br/>(keeps the tap gesture synchronous)"]
-    Blob --> Engine["Download engine<br/>strategy chain per platform"]
+    Blob --> Engine["Download engine<br/>bridge / iOS / blob strategies"]
     Bulk --> Engine
 
+    ServerDL --> Endpoint
     DirectLink --> Endpoint
     Endpoint --> Headers["Response headers<br/>Content-Disposition: attachment"]
     Headers --> OS1["OS download manager saves file"]
@@ -27,21 +29,24 @@ flowchart TB
     Engine --> OS2["Share sheet / browser download manager<br/>or guide dialog"]
 ```
 
-- **Mode B — Download:** the backend returns the file body (e.g. JSON). The frontend fetches it ahead of time, then applies a per-platform strategy so the file actually saves.
-- **Mode A — Direct link:** a plain link to the endpoint. The server's `Content-Disposition: attachment` header does the work — the most reliable path on iOS.
-- **Mode C — Download both:** runs the same strategy chain for JSON then PDF, sequentially, and aggregates a status message. iOS may only grant one share sheet per gesture — the per-row buttons remain the fallback.
+- **Mode B — Download:** a central planner selects the transport before any fetch. Android webviews without a bridge use a real anchor to the endpoint, so the server's `Content-Disposition: attachment` header does the save; bridge and local plans prefetch a blob only when needed.
+- **Mode A — Direct link:** a plain link to the endpoint. The server's `Content-Disposition: attachment` header does the work — the most reliable path on iOS and the proven fallback for Android webviews.
+- **Mode C — Download both:** runs the same planner for JSON then PDF, sequentially, and aggregates a confirmed-result message. Android webviews without a bridge cannot start two server downloads from one gesture, so the action directs users to the per-file buttons. iOS may only grant one share sheet per gesture.
 
 ## 2. Strategy Chain (Download)
 
-Mirrors `src/features/download-file/model/engine.ts` exactly. The bridge path needs no blob at all; every other path needs the blob to be ready before the tap is served (Safari drops user activation otherwise).
+Routing is centralized in `src/features/download-file/model/engine.ts`. The bridge plan needs no blob; the Android server plan uses a real anchor and needs no blob; the local plan needs the blob ready before the tap is served (Safari drops user activation otherwise).
 
 ```mermaid
 flowchart TD
-    Start(["Tap 'Download'"]) --> BridgeAvail{"In-app webview<br/>with native bridge?"}
-    BridgeAvail -- "yes" --> BridgePost["Post payload to<br/>DownloadBridge / flutter_inappwebview<br/>(no prefetch needed)"]
+    Start(["Tap 'Download'"]) --> Planner{"Download planner"}
+    Planner -- "webview + native bridge" --> BridgePost["Post payload to<br/>DownloadBridge / flutter_inappwebview<br/>(no prefetch needed)"]
     BridgePost --> BridgeStatus["Status: 'Handed to the app'<br/>native reply updates the row"]
 
-    BridgeAvail -- "no" --> Ready{"Blob ready?"}
+    Planner -- "Android webview, no bridge" --> ServerAnchor["Real anchor to endpoint<br/>no download attribute<br/>(no prefetch needed)"]
+    ServerAnchor --> ServerSaved["Server Content-Disposition<br/>triggers the WebView download"]
+
+    Planner -- "local" --> Ready{"Blob ready?"}
     Ready -- "no" --> Preparing["'Preparing…' + queued fetch<br/>auto-runs when the blob lands<br/>(failed fetch → 'Retry')"]
     Preparing --> Ready2{"Blob available?"}
     Ready -- "yes" --> Ready2
@@ -60,14 +65,11 @@ flowchart TD
 
     IOS -- "no" --> WV{"In-app webview?"}
     WV -- "no" --> Anchor["Anchor click<br/>blob + download attribute"]
-    WV -- "yes" --> Android{"Android webview?"}
-    Android -- "yes" --> AnchorWV["Anchor click attempt<br/>(may be ignored if host app lacks a DownloadListener)"]
-    Android -- "no" --> GuideOnly
+    WV -- "yes" --> GuideOnly
 
     DataURI --> Uncertain["Status shown<br/>+ auto-opens guide on iOS webviews"]
     Octet --> Uncertain
     Uncertain --> Guide
-    AnchorWV --> Guide
     GuideOnly --> Guide
 
     Anchor --> Saved["File saved by OS download manager"]
@@ -87,25 +89,30 @@ sequenceDiagram
     participant OS as OS share / download UI
     participant N as Native bridge (host app)
 
-    P->>E: GET /v3/verification/qr.json (prefetch on mount)
+    Note over P: Planner runs before prefetch
+    P->>E: GET /v3/verification/qr.json (only for local plans)
     E-->>P: file body + Content-Disposition filename
-    Note over P: Blob held in memory
+    Note over P: Blob held in memory for local plans
     U->>P: taps "Download"
-    P->>G: runDownload(url, blob|null)
-    alt webview with bridge
-        G->>N: DownloadBridge payload (no blob needed)
+    alt Android webview without a bridge
+        P->>E: navigate real anchor to endpoint
+        E-->>OS: Content-Disposition triggers download
+        OS-->>U: File saved (Downloads folder)
+    else webview with bridge
+        P->>N: DownloadBridge payload (no blob needed)
         N-->>P: window.onDownloadBridgeResult("saved")
-    else no bridge
+    else local plan
+        P->>G: runDownload(url, blob|null, local plan)
         G->>OS: share sheet / anchor click / data URI / guide
         OS-->>U: File saved (Files app / Downloads folder)
     end
 ```
 
-"Download both" repeats the second half of this sequence for each artifact (JSON, then PDF) and aggregates the outcome into a single status line. On iOS the second share sheet may be denied once the tap gesture's activation is spent — the engine then falls back to the octet-stream attempt, and any file counted as not handled is left for the per-row buttons.
+"Download both" repeats the planner for each artifact (JSON, then PDF) and aggregates confirmed results into a single status line. On Android webviews without a bridge, the action explains that each file must use its own Download button. On iOS the second share sheet may be denied once the tap gesture's activation is spent — the engine then falls back to the octet-stream attempt, and any file not confirmed is left for the per-row buttons.
 
 ## 4. Bridge Contract (In-App Webviews)
 
-In-app webviews cannot save downloads from JS alone — no web-only change fixes that. When the page detects a host-app bridge, the engine hands the file over to native code instead of faking a download.
+In-app webviews cannot be relied on to save blob downloads from JS alone. When the page detects a host-app bridge, the engine hands the file over to native code instead of faking a download. Without a bridge, Android webviews use a real server link and rely on the host WebView's download handling.
 
 ### Detection & transport (web side: `model/bridge.ts`)
 
@@ -183,7 +190,7 @@ controller.addJavaScriptHandler(
 );
 ```
 
-Without a bridge, the page still works: it falls back to the data-URI/blob attempts and auto-opens the manual guide on iOS webviews.
+Without a bridge, the page still works: Android webviews use a real server attachment link, while iOS webviews fall back to data-URI/blob attempts and auto-open the manual guide.
 
 ## 5. Sequence: Direct Link
 
@@ -235,14 +242,15 @@ flowchart LR
 | iOS in-app webview (Instagram, Facebook, ...) | bridge if present &#8594; data URI anchor &#8594; auto guide | Often blocked &#8594; guide |
 | Flutter webview with bridge | native hand-off + result callback | host-app dependent |
 | Android browser | blob + `download` attribute | header &#10003; |
-| Android webview | bridge if present &#8594; blob attempt &#8594; guide | host-app dependent |
+| Android webview | bridge if present &#8594; server attachment anchor &#8594; guide | header &#10003; |
 | Desktop (all browsers) | blob + `download` attribute | header &#10003; |
 
 ## 8. Why This Is Needed (iOS WebKit Quirks)
 
 - All iOS browsers use WebKit — Chrome/Firefox/Edge on iPhone behave like Safari, not like their desktop versions.
 - Text-like files (JSON) open in-tab instead of downloading; PDFs get previewed.
-- `blob:` URLs with the `download` attribute are ignored inside WKWebView (in-app browsers).
+- `blob:` URLs with the `download` attribute are ignored inside WKWebView (in-app browsers) and some Android WebViews such as Messenger.
+- Android WebViews that block blob downloads still handle ordinary HTTP(S) navigations with `Content-Disposition: attachment`; that is why Download uses a real server anchor there.
 - `data:` URIs still work in WKWebView but broke in recent iOS Safari — hence blob for Safari, data URI for webviews.
 - Rebuilding a blob as `application/octet-stream` forces Safari to download instead of preview.
 - Filenames are lost unless the server sends `Content-Disposition` or the user goes through the share sheet.
@@ -255,7 +263,7 @@ flowchart LR
 | Concern | File |
 | :--- | :--- |
 | Platform / webview detection | `src/shared/lib/platform.ts` |
-| Strategy chain (pure logic) | `src/features/download-file/model/engine.ts` |
+| Planner + executable strategy chain | `src/features/download-file/model/engine.ts` |
 | Native bridge detection, post, result parsing | `src/features/download-file/model/bridge.ts` |
 | Real DOM implementations (share, anchor, data URI) | `src/features/download-file/model/browser.ts` |
 | Gesture-safe orchestration hook | `src/features/download-file/model/useDownloadFile.ts` |

@@ -13,6 +13,7 @@ const KIND_LABELS: Record<DownloadArtifact['id'], string> = {
 
 const METHOD_MESSAGES: Record<DownloadMethod, string> = {
   bridge: 'Handed to the app — it will save the file to your phone.',
+  server: 'Download started.',
   share: 'Share sheet opened — choose "Save to Files".',
   'octet-stream': 'Download triggered (octet-stream fallback).',
   anchor: 'Download triggered.',
@@ -28,7 +29,7 @@ const BRIDGE_OUTCOME_MESSAGES: Record<BridgeOutcome['status'], string> = {
 }
 
 const UNCERTAIN_SUFFIX =
-  ' If nothing happened, use the direct link or copy the link into your browser.'
+  ' If nothing happened, copy the link and open it in your browser.'
 
 interface DownloadArtifactRowProps {
   artifact: DownloadArtifact
@@ -75,14 +76,26 @@ export function DownloadArtifactRow({ artifact }: DownloadArtifactRowProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          data-testid={`download-${artifact.id}`}
-          disabled={download.disabled}
-          onClick={download.start}
-        >
-          {buttonLabel}
-        </Button>
+        {download.plan.route === 'server' ? (
+          <Button asChild>
+            <a
+              data-testid={`download-${artifact.id}`}
+              href={download.downloadUrl}
+              onClick={download.start}
+            >
+              Download
+            </a>
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            data-testid={`download-${artifact.id}`}
+            disabled={download.disabled}
+            onClick={download.start}
+          >
+            {buttonLabel}
+          </Button>
+        )}
         <Button asChild variant="secondary">
           <a
             data-testid={`direct-link-${artifact.id}`}

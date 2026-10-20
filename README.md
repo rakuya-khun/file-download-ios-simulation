@@ -19,7 +19,7 @@ So the page implements a strategy chain per platform:
 | iOS/iPadOS browser | Web Share API ("Save to Files") → octet-stream blob download → manual guide |
 | iOS/iPadOS in-app webview | bridge if present → data URI anchor → auto-opened guide |
 | Android browser | blob + `download` attribute |
-| Android webview | bridge if present → blob attempt → manual guide |
+| Android webview | bridge if present → server attachment link → manual guide |
 | Desktop | blob + `download` attribute |
 
 **Direct link mode** is the most reliable path on iOS: a plain link to the endpoint, letting the server's `Content-Disposition: attachment` header trigger the save.
@@ -30,12 +30,12 @@ When the page runs inside an app webview with a native bridge, downloads are han
 
 Each artifact exposes:
 
-- **Download** — client-side path (backend returns JSON in the response body). If the prefetch failed, the button becomes **Retry**. On iPhone/iPad this opens the share sheet — choose **Save to Files** (the sheet is handed only the file, so exactly one item is saved).
+- **Download** — the planner selects a native bridge, a server attachment link, or a client-side path. On Android webviews without a bridge, Download is a real link to the endpoint: the server's `Content-Disposition: attachment` header triggers the save and no prefetch is needed. If a client-side prefetch fails, the button becomes **Retry**. On iPhone/iPad this opens the share sheet — choose **Save to Files** (the sheet is handed only the file, so exactly one item is saved).
 - **Direct link** — server-side path (backend triggers the download via headers).
-- **Copy link** — copies the endpoint URL for pasting into a browser.
+- **Copy link** — copies the absolute endpoint URL for pasting into a browser.
 - **Not working? Show guide** — manual save instructions (includes **Copy link** and **Open in browser**).
 
-**Download both** runs the same strategy for JSON then PDF in sequence and reports how many files were handled. On iOS only one share sheet may be granted per gesture — if the status says files are missing, tap the remaining row directly.
+**Download both** runs the same strategy for JSON then PDF in sequence and reports confirmed results. On iOS only one share sheet may be granted per gesture. On Android webviews without a bridge, multiple server downloads cannot be started from one gesture, so the bulk action directs you to the per-file buttons.
 
 Append `?simulate=ios`, `?simulate=ipados`, `?simulate=android`, `?simulate=ios-webview`, `?simulate=android-webview`, `?simulate=instagram`, or `?simulate=facebook` to preview another platform's strategy from a desktop browser (`instagram` and `facebook` preview an iOS in-app webview).
 

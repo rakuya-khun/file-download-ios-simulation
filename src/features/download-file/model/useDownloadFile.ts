@@ -12,11 +12,25 @@ import {
   subscribeToBridgeOutcome,
 } from './bridge'
 import { createBrowserDownloadDeps } from './browser'
-import { type DownloadInput, type DownloadResult, runDownload } from './engine'
+import {
+  type DownloadInput,
+  type DownloadResult,
+  type ExecutableDownloadPlan,
+  resolveDownloadPlan,
+  runDownload,
+} from './engine'
 
 export function useDownloadFile(artifact: DownloadArtifact) {
   const platform = useMemo(() => getPlatform(), [])
-  const query = useArtifactBlob(artifact)
+  const bridgeAvailable = useMemo(
+    () => platform.isWebview && hasDownloadBridge(),
+    [platform],
+  )
+  const plan = useMemo(
+    () => resolveDownloadPlan(platform, bridgeAvailable),
+    [bridgeAvailable, platform],
+  )
+  const query = useArtifactBlob(artifact, { enabled: plan.requiresBlob })
   const [result, setResult] = useState<DownloadResult | null>(null)
   const [bridgeOutcome, setBridgeOutcome] = useState<BridgeOutcome | null>(null)
   const [guideOpen, setGuideOpen] = useState(false)
@@ -27,10 +41,6 @@ export function useDownloadFile(artifact: DownloadArtifact) {
   const resultRef = useRef<DownloadResult | null>(null)
 
   const downloadUrl = resolveArtifactUrl(artifact.endpoint)
-  const bridgeAvailable = useMemo(
-    () => platform.isWebview && hasDownloadBridge(),
-    [platform],
-  )
 
   useEffect(
     () =>
@@ -43,10 +53,15 @@ export function useDownloadFile(artifact: DownloadArtifact) {
   )
 
   const execute = useCallback(
-    (input: DownloadInput) => {
+    (input: DownloadInput, executablePlan: ExecutableDownloadPlan) => {
       busyRef.current = true
       setBusy(true)
-      void runDownload(input, platform, createBrowserDownloadDeps())
+      void runDownload(
+        input,
+        platform,
+        executablePlan,
+        createBrowserDownloadDeps(),
+      )
         .then((outcome) => {
           resultRef.current = outcome
           setResult(outcome)
@@ -76,13 +91,23 @@ export function useDownloadFile(artifact: DownloadArtifact) {
     setBridgeOutcome(null)
     setLinkCopied(false)
 
-    if (bridgeAvailable) {
-      execute({
-        url: downloadUrl,
-        blob: query.data?.blob ?? null,
-        filename: query.data?.filename ?? artifact.filename,
-        mimeType: query.data?.mimeType ?? artifact.mimeType,
-      })
+    if (plan.route === 'server') {
+      const outcome: DownloadResult = { method: 'server', uncertain: true }
+      resultRef.current = outcome
+      setResult(outcome)
+      return
+    }
+
+    if (plan.route === 'bridge') {
+      execute(
+        {
+          url: downloadUrl,
+          blob: query.data?.blob ?? null,
+          filename: query.data?.filename ?? artifact.filename,
+          mimeType: query.data?.mimeType ?? artifact.mimeType,
+        },
+        plan,
+      )
       return
     }
 
@@ -92,58 +117,77 @@ export function useDownloadFile(artifact: DownloadArtifact) {
       return
     }
 
-    execute({
-      url: downloadUrl,
-      blob: query.data.blob,
-      filename: query.data.filename ?? artifact.filename,
-      mimeType: query.data.mimeType ?? artifact.mimeType,
-    })
+    execute(
+      {
+        url: downloadUrl,
+        blob: query.data.blob,
+        filename: query.data.filename ?? artifact.filename,
+        mimeType: query.data.mimeType ?? artifact.mimeType,
+      },
+      plan,
+    )
   }, [
     artifact.filename,
     artifact.mimeType,
-    bridgeAvailable,
     downloadUrl,
     execute,
+    plan,
     query,
     queued,
   ])
 
   useEffect(() => {
-    if (!queued || !query.data) return
+    if (plan.route !== 'local' || !queued || !query.data) return
     setQueued(false)
-    execute({
-      url: downloadUrl,
-      blob: query.data.blob,
-      filename: query.data.filename ?? artifact.filename,
-      mimeType: query.data.mimeType ?? artifact.mimeType,
-    })
+    execute(
+      {
+        url: downloadUrl,
+        blob: query.data.blob,
+        filename: query.data.filename ?? artifact.filename,
+        mimeType: query.data.mimeType ?? artifact.mimeType,
+      },
+      plan,
+    )
   }, [
     artifact.filename,
     artifact.mimeType,
     downloadUrl,
     execute,
+    plan,
     query.data,
     queued,
   ])
 
   useEffect(() => {
-    if (queued && query.isError && !query.isFetching) {
+    if (
+      plan.route === 'local' &&
+      queued &&
+      query.isError &&
+      !query.isFetching
+    ) {
       setQueued(false)
     }
-  }, [queued, query.isError, query.isFetching])
+  }, [plan, queued, query.isError, query.isFetching])
 
   const openGuide = useCallback(() => setGuideOpen(true), [])
   const closeGuide = useCallback(() => setGuideOpen(false), [])
   const copyLink = useCallback(() => {
-    void copyTextToClipboard(downloadUrl).then(setLinkCopied)
+    const absoluteUrl = new URL(downloadUrl, window.location.href).href
+    void copyTextToClipboard(absoluteUrl).then(setLinkCopied)
   }, [downloadUrl])
 
-  const preparing = queued || busy
-  const disabled = bridgeAvailable ? busy : query.isPending || queued || busy
-  const error = !bridgeAvailable && query.isError && !queued
+  const preparing = plan.route === 'server' ? false : queued || busy
+  const disabled =
+    plan.route === 'server'
+      ? false
+      : plan.route === 'bridge'
+        ? busy
+        : query.isPending || queued || busy
+  const error = plan.route === 'local' && query.isError && !queued
 
   return {
     platform,
+    plan,
     downloadUrl,
     preparing,
     disabled,

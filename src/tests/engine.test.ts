@@ -2,6 +2,8 @@ import { describe, expect, it, type Mock, vi } from 'vitest'
 import {
   type DownloadDeps,
   type DownloadInput,
+  type ExecutableDownloadPlan,
+  resolveDownloadPlan,
   runDownload,
 } from '@/features/download-file'
 import { detectPlatform, type PlatformInfo } from '@/shared/lib/platform'
@@ -64,12 +66,21 @@ function platformFor(ua: string, maxTouchPoints = 0): PlatformInfo {
   return detectPlatform(ua, maxTouchPoints)
 }
 
+function planFor(ua: string, bridge = false): ExecutableDownloadPlan {
+  const plan = resolveDownloadPlan(platformFor(ua), bridge)
+  if (plan.route === 'server') {
+    throw new Error('Server plans must be executed by a real anchor')
+  }
+  return plan
+}
+
 describe('runDownload strategy chain', () => {
   it('uses Web Share on iOS when available', async () => {
     const deps = makeDeps({ canShare: true })
     const result = await runDownload(
       input,
       platformFor(IPHONE_SAFARI),
+      planFor(IPHONE_SAFARI),
       deps.deps,
     )
 
@@ -86,6 +97,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_SAFARI),
+      planFor(IPHONE_SAFARI),
       deps.deps,
     )
 
@@ -98,6 +110,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_SAFARI),
+      planFor(IPHONE_SAFARI),
       deps.deps,
     )
 
@@ -116,6 +129,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_SAFARI),
+      planFor(IPHONE_SAFARI),
       deps.deps,
     )
 
@@ -128,6 +142,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_WEBVIEW),
+      planFor(IPHONE_WEBVIEW),
       deps.deps,
     )
 
@@ -141,6 +156,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_WEBVIEW),
+      planFor(IPHONE_WEBVIEW, true),
       deps.deps,
     )
 
@@ -157,6 +173,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(ANDROID_WEBVIEW),
+      planFor(ANDROID_WEBVIEW, true),
       deps.deps,
     )
 
@@ -169,6 +186,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(IPHONE_SAFARI),
+      planFor(IPHONE_SAFARI),
       deps.deps,
     )
 
@@ -181,6 +199,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       { ...input, blob: null },
       platformFor(IPHONE_WEBVIEW),
+      planFor(IPHONE_WEBVIEW, true),
       deps.deps,
     )
 
@@ -193,6 +212,7 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       { ...input, blob: null },
       platformFor(DESKTOP_CHROME),
+      planFor(DESKTOP_CHROME),
       deps.deps,
     )
 
@@ -201,24 +221,12 @@ describe('runDownload strategy chain', () => {
     expect(deps.triggerBlobDownload).not.toHaveBeenCalled()
   })
 
-  it('attempts a blob download inside Android webviews', async () => {
-    const deps = makeDeps()
-    const result = await runDownload(
-      input,
-      platformFor(ANDROID_WEBVIEW),
-      deps.deps,
-    )
-
-    expect(result).toEqual({ method: 'anchor', uncertain: true })
-    const [blob] = deps.triggerBlobDownload.mock.calls[0] as [Blob, string]
-    expect(blob.type).toBe('application/json')
-  })
-
   it('uses a direct blob download on desktop', async () => {
     const deps = makeDeps()
     const result = await runDownload(
       input,
       platformFor(DESKTOP_CHROME),
+      planFor(DESKTOP_CHROME),
       deps.deps,
     )
 
@@ -232,9 +240,60 @@ describe('runDownload strategy chain', () => {
     const result = await runDownload(
       input,
       platformFor(ANDROID_CHROME),
+      planFor(ANDROID_CHROME),
       deps.deps,
     )
 
     expect(result).toEqual({ method: 'anchor', uncertain: false })
+  })
+})
+
+describe('resolveDownloadPlan', () => {
+  it('uses a server anchor for Android webviews without a bridge', () => {
+    expect(resolveDownloadPlan(platformFor(ANDROID_WEBVIEW), false)).toEqual({
+      route: 'server',
+      requiresBlob: false,
+    })
+  })
+
+  it('prefers the bridge inside Android webviews', () => {
+    expect(resolveDownloadPlan(platformFor(ANDROID_WEBVIEW), true)).toEqual({
+      route: 'bridge',
+      requiresBlob: false,
+    })
+  })
+
+  it('keeps local strategies on iOS webviews', () => {
+    expect(resolveDownloadPlan(platformFor(IPHONE_WEBVIEW), false)).toEqual({
+      route: 'local',
+      requiresBlob: true,
+    })
+  })
+
+  it('keeps local strategies on Android browsers', () => {
+    expect(resolveDownloadPlan(platformFor(ANDROID_CHROME), false)).toEqual({
+      route: 'local',
+      requiresBlob: true,
+    })
+  })
+
+  it('keeps local strategies on desktop', () => {
+    expect(resolveDownloadPlan(platformFor(DESKTOP_CHROME), false)).toEqual({
+      route: 'local',
+      requiresBlob: true,
+    })
+  })
+
+  it('guards against executing a server plan through runDownload', async () => {
+    const deps = makeDeps()
+    const result = await runDownload(
+      input,
+      platformFor(ANDROID_WEBVIEW),
+      { route: 'local', requiresBlob: true },
+      deps.deps,
+    )
+
+    expect(result).toEqual({ method: 'guide', uncertain: true })
+    expect(deps.triggerBlobDownload).not.toHaveBeenCalled()
   })
 })

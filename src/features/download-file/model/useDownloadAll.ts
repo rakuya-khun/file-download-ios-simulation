@@ -8,12 +8,15 @@ import { fetchFile, resolveArtifactUrl } from '@/shared/api/client'
 import { getPlatform } from '@/shared/lib/platform'
 import { hasDownloadBridge } from './bridge'
 import { createBrowserDownloadDeps } from './browser'
-import { type DownloadResult, runDownload } from './engine'
+import { type DownloadResult, resolveDownloadPlan, runDownload } from './engine'
 
 export type DownloadAllStatus =
   | { kind: 'idle' }
   | { kind: 'running' }
   | { kind: 'done'; message: string }
+
+export const SERVER_BULK_MESSAGE =
+  "This screen can't save both at once — use each Download button."
 
 export function buildBulkStatusMessage(
   outcomes: DownloadResult[],
@@ -21,14 +24,15 @@ export function buildBulkStatusMessage(
 ): string {
   const saved = outcomes.filter(
     (outcome) =>
+      !outcome.uncertain &&
       outcome.method !== 'guide' &&
       outcome.method !== 'cancelled' &&
-      !(outcome.method === 'octet-stream' && outcome.uncertain),
+      outcome.method !== 'server',
   ).length
 
   if (saved === total) return `All ${total} files are on their way.`
-  if (saved === 0) return 'Nothing was saved — tap each file below.'
-  return `${saved} of ${total} handled — tap the rest below.`
+  if (saved === 0) return 'No download was confirmed — use each file below.'
+  return `${saved} of ${total} confirmed — use each file below.`
 }
 
 export function useDownloadAll(artifacts: DownloadArtifact[]) {
@@ -36,6 +40,10 @@ export function useDownloadAll(artifacts: DownloadArtifact[]) {
   const bridgeAvailable = useMemo(
     () => platform.isWebview && hasDownloadBridge(),
     [platform],
+  )
+  const plan = useMemo(
+    () => resolveDownloadPlan(platform, bridgeAvailable),
+    [bridgeAvailable, platform],
   )
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<DownloadAllStatus>({ kind: 'idle' })
@@ -45,6 +53,13 @@ export function useDownloadAll(artifacts: DownloadArtifact[]) {
     if (runningRef.current) return
     runningRef.current = true
     setStatus({ kind: 'running' })
+
+    if (plan.route === 'server') {
+      runningRef.current = false
+      setStatus({ kind: 'done', message: SERVER_BULK_MESSAGE })
+      return
+    }
+
     const outcomes: DownloadResult[] = []
 
     for (const artifact of artifacts) {
@@ -53,7 +68,7 @@ export function useDownloadAll(artifacts: DownloadArtifact[]) {
       let filename = artifact.filename
       let mimeType = artifact.mimeType
 
-      if (!bridgeAvailable) {
+      if (plan.requiresBlob) {
         try {
           const data = await queryClient.fetchQuery({
             queryKey: downloadArtifactKeys.file(artifact.id),
@@ -72,6 +87,7 @@ export function useDownloadAll(artifacts: DownloadArtifact[]) {
         const outcome = await runDownload(
           { url, blob, filename, mimeType },
           platform,
+          plan,
           createBrowserDownloadDeps(),
         )
         outcomes.push(outcome)
@@ -85,7 +101,7 @@ export function useDownloadAll(artifacts: DownloadArtifact[]) {
       kind: 'done',
       message: buildBulkStatusMessage(outcomes, artifacts.length),
     })
-  }, [artifacts, bridgeAvailable, platform, queryClient])
+  }, [artifacts, plan, platform, queryClient])
 
   return {
     startAll,

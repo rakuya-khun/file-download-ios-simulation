@@ -171,6 +171,41 @@ test('simulated iOS webview falls back to a data URI and auto-opens the guide', 
   )
 })
 
+test('simulated Android webview downloads through the server attachment', async ({
+  page,
+}) => {
+  await page.goto('/?simulate=android-webview')
+
+  const downloadLink = page.getByTestId('download-json')
+  await expect(downloadLink).toHaveAttribute('href', '/v3/verification/qr.json')
+  await expect(downloadLink).not.toHaveAttribute('download')
+
+  const downloadPromise = page.waitForEvent('download')
+  await downloadLink.click()
+  const download = await downloadPromise
+
+  expect(download.suggestedFilename()).toBe('verification-qr.json')
+  await expect(page.getByTestId('status-json')).toContainText(
+    'Download started',
+  )
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+})
+
+test('simulated Android webview explains the bulk download limitation', async ({
+  page,
+}) => {
+  await page.goto('/?simulate=android-webview')
+
+  await page.getByTestId('download-all').click()
+
+  await expect(page.getByTestId('download-all-status')).toContainText(
+    "This screen can't save both at once",
+  )
+  await expect(page.getByTestId('download-all-status')).toContainText(
+    'use each Download button',
+  )
+})
+
 test('hands the download to the native bridge inside a webview', async ({
   page,
 }) => {
@@ -256,7 +291,7 @@ test('shows the save guide on request', async ({ page }) => {
   )
 })
 
-test('copies the direct link from a row', async ({ page }) => {
+test('copies an absolute direct link from a row', async ({ page }) => {
   await page.goto('/')
 
   const copyButton = page.getByTestId('copy-link-json')
@@ -266,5 +301,7 @@ test('copies the direct link from a row', async ({ page }) => {
   const clipboardText = await page.evaluate(() =>
     navigator.clipboard.readText(),
   )
-  expect(clipboardText).toBe('/v3/verification/qr.json')
+  expect(clipboardText).toBe(
+    `${new URL(page.url()).origin}/v3/verification/qr.json`,
+  )
 })

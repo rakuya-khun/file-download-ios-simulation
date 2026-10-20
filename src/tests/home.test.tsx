@@ -68,6 +68,17 @@ describe('HomeView', () => {
     expect(screen.getByTestId('download-all')).toBeInTheDocument()
   })
 
+  it('uses the server link for Android webview downloads', () => {
+    window.history.replaceState(null, '', '/?simulate=android-webview')
+    renderHome()
+
+    const download = screen.getByTestId('download-json')
+    expect(download.tagName).toBe('A')
+    expect(download).toHaveAttribute('href', '/v3/verification/qr.json')
+    expect(download).not.toHaveAttribute('download')
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+  })
+
   it('honors ?simulate to preview another platform', () => {
     window.history.replaceState(null, '', '/?simulate=ios-webview')
     renderHome()
